@@ -110,11 +110,12 @@
                                             <div class="accordion-body">
                                                 <label for="trigger_uri" class="mb-0">Trigger URL: <span class="badge rounded-pill text-bg-info">asterisk (*) wildcard is
                                                         supported</span></label>
-                                                <input type="text" class="form-control" id="trigger_uri" placeholder="Trigger URL. eg: https://myapp.com/welcome" required="required" pattern="(https?://.+).{3,}">
+                                                <input type="text" class="form-control" id="trigger_uri" placeholder="Trigger URL. e.g. https://myapp.com/welcome or https://example.com/*" required="required" pattern="https?://.+">
                                                 <div id="trigger_uri_fb" class="invalid-feedback">Valid trigger URL
                                                     (including "http://" or "https://") is required.</div>
-                                                <div class="text-secondary small">Navigating to this URL will start the
-                                                    background request loop.</div>
+                                                <div class="text-secondary small">Navigating to this URL (or a matching one) starts the
+                                                    background request loop. Wildcards: <code>https://*.example.com</code> (subdomains),
+                                                    <code>https://app.example.com/*</code> (any path).</div>
 
                                                 <label for="loop_uri" class="pt-3 mb-0">Background Request URL: <span class="badge rounded-pill text-bg-info">Optional</span></label>
                                                 <input type="url" class="form-control" id="loop_uri" placeholder="Optional Background Request URL. eg: https://myapp.com/options" pattern="(https?://.+).{3,}">
@@ -164,21 +165,23 @@
                                         <div id="collapseThree" class="accordion-collapse collapse" data-bs-parent="#accordionForeground">
                                             <div class="accordion-body">
                                                 <label for="fg_trigger_uri" class="mb-0">Foreground Auto-Reload Trigger
-                                                    URL:</label>
-                                                <input type="url" class="form-control" id="fg_trigger_uri" placeholder="Foreground Auto-Reload Trigger URL. eg: https://example.com/user/" pattern="https?://.+">
+                                                    URL: <span class="badge rounded-pill text-bg-info">asterisk (*) wildcard supported</span></label>
+                                                <input type="text" class="form-control" id="fg_trigger_uri" placeholder="Foreground Auto-Reload Trigger URL. e.g. https://example.com/user/ or https://example.com/*" pattern="https?://.+">
                                                 <div id="fgTriggerUriFb" class="invalid-feedback">Valid trigger URL
                                                     (including "http://" or "https://") is required.</div>
                                                 <div class="text-secondary text-justify small">Some websites implement a
                                                     JavaScript idle timer. For these websites, requesting the page in
                                                     the background will not be enough to keep the session alive. The
-                                                    page needs to reload to keep the session. Navigating to a any URL
-                                                    starting with the Trigger URL will start the foreground page reload
-                                                    loop. For example Trigger URL is set to
-                                                    <code>https://example.com/user/</code>, navigating to
-                                                    <code>https://example.com/user/profile</code> or
-                                                    <code>https://example.com/user/account/details</code> will set to
-                                                    auto reload in the set interval
+                                                    page needs to reload. Use a prefix or <code>*</code> wildcards:
                                                 </div>
+                                                <ul class="text-secondary small mb-0">
+                                                    <li><strong>Subdomains:</strong> <code>https://*.jamfcloud.com</code> matches
+                                                        <code>https://someschool.jamfcloud.com</code> (and any subdomain).</li>
+                                                    <li><strong>Any path:</strong> <code>https://app.example.com/*</code> matches
+                                                        <code>https://app.example.com/dashboard/profile/42/settings</code> (and any path).</li>
+                                                    <li><strong>Prefix (no wildcard):</strong> <code>https://example.com/user/</code> matches any URL starting with that path.</li>
+                                                </ul>
+                                                <div class="text-secondary text-justify small mt-1">Navigating to a matching URL starts the foreground auto-reload loop.</div>
 
                                                 <label for="fg_interval" class="pt-3 mb-0">Foreground Auto-Reload
                                                     Interval (in minutes):</label>

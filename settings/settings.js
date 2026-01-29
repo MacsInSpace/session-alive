@@ -40,13 +40,29 @@ const triggerUriFb = document.getElementById("trigger_uri_fb");
  * Regular expression for matching wildcard characters in URLs.
  * @type {RegExp}
  */
-const REGEXP_WILDCARD = /(\*)/g;
+const REGEXP_WILDCARD = /\*/g;
 
 /**
  * Regular expression for escaping special characters in URLs.
  * @type {RegExp}
  */
 const REGEXP_ESCAPE = /[.+\-?^${}()|[\]\\]/g;
+
+/**
+ * Converts a URL pattern with * wildcards to a RegExp. * matches any characters (.*).
+ * Pattern is anchored at start (^). Same behaviour as background wildcardPatternToRegexSource.
+ * @param {string} pattern - URL pattern (e.g. "https://example.com/*").
+ * @returns {RegExp|null} RegExp for matching URLs, or null if invalid.
+ */
+function wildcardPatternToRegex(pattern) {
+    try {
+        const normalized = pattern.replace(/\/$/, "").replace(/\/\*$/, "*").toLowerCase();
+        const source = normalized.replace(REGEXP_ESCAPE, "\\$&").replace(REGEXP_WILDCARD, ".*");
+        return new RegExp("^" + source);
+    } catch (e) {
+        return null;
+    }
+}
 
 const themeSwitch = document.getElementById('themeSwitch');
 
@@ -464,38 +480,38 @@ triggerUriInput.addEventListener("blur", function (event) {
         loopIntervalInput.setAttribute("required", "required");
     }
     else { loopIntervalInput.removeAttribute("required"); }
-    /* Duplicate URL Checking */
+    /* Duplicate URL Checking (exact and wildcard) */
     var duplicate = false;
-    var AddUrlMatch, TriggerUrlMatch;
     for (var key in aliveRules) {
         if (aliveRules.hasOwnProperty(key)) {
             if (aliveRules[key].rule_disable || key == ruleIdInput.value || ruleDisableInput.checked) { continue; }
-            if (event.target.value !== "" && event.target.value.replace(/\/$/, '').toLowerCase() == aliveRules[key].trigger_uri.replace(/\/$/, '').toLowerCase()) {
-                triggerUriInput.setCustomValidity("This URL is already used in another Rule! Please disable or delete that Rule first.");
-                triggerUriFb.innerHTML = 'This URL is already used in another Rule! Please disable or delete that Rule first.';
+            var normTrigger = aliveRules[key].trigger_uri.replace(/\/$/, "").toLowerCase();
+            var normVal = event.target.value.replace(/\/$/, "").toLowerCase();
+            if (event.target.value !== "" && normVal === normTrigger) {
                 duplicate = true;
                 break;
             }
-            /* Duplicate URL Checking for WildCard URLs*/
-            if (event.target.value.indexOf('*') >= 0) {
-                let re = new RegExp(event.target.value.replace(/\/$/, '').replace(/\/\*$/, '*').toLowerCase().replace(REGEXP_ESCAPE, '\\$&').replace(REGEXP_WILDCARD, '\.$1'));
-                AddUrlMatch = re.test(aliveRules[key].trigger_uri.replace(/\/$/, '').toLowerCase());
+            var addMatch = false, triggerMatch = false;
+            if (event.target.value.indexOf("*") >= 0) {
+                var re = wildcardPatternToRegex(event.target.value);
+                if (re) addMatch = re.test(normTrigger);
             }
-            if (aliveRules[key].trigger_uri.indexOf('*') >= 0) {
-                let re = new RegExp(aliveRules[key].trigger_uri.replace(/\/$/, '').replace(/\/\*$/, '*').toLowerCase().replace(REGEXP_ESCAPE, '\\$&').replace(REGEXP_WILDCARD, '\.$1'));
-                TriggerUrlMatch = re.test(event.target.value.replace(/\/$/, '').toLowerCase());
+            if (aliveRules[key].trigger_uri.indexOf("*") >= 0) {
+                var re = wildcardPatternToRegex(aliveRules[key].trigger_uri);
+                if (re) triggerMatch = re.test(normVal);
             }
-            if (AddUrlMatch || TriggerUrlMatch) {
-                triggerUriInput.setCustomValidity("This URL is already used in another Rule! Please disable or delete that Rule first.");
-                triggerUriFb.innerHTML = 'This URL is already used in another Rule! Please disable or delete that Rule first.';
+            if (addMatch || triggerMatch) {
                 duplicate = true;
                 break;
-            }
-            if (!duplicate) { // Clear the Custom Validity Check
-                triggerUriInput.setCustomValidity("");
-                triggerUriFb.innerHTML = 'Valid trigger URL (including "http://" or "https://") is required.';
             }
         }
+    }
+    if (duplicate) {
+        triggerUriInput.setCustomValidity("This URL is already used in another Rule! Please disable or delete that Rule first.");
+        triggerUriFb.innerHTML = 'This URL is already used in another Rule! Please disable or delete that Rule first.';
+    } else {
+        triggerUriInput.setCustomValidity("");
+        triggerUriFb.innerHTML = 'Valid trigger URL (including "http://" or "https://") is required.';
     }
 }, true);
 
@@ -514,20 +530,31 @@ fgTriggerUriInput.addEventListener("blur", function (event) {
         triggerUriInput.setAttribute("required", "required");
         loopIntervalInput.setAttribute("required", "required");
     }
-    /* Duplicate URL Checking */
+    /* Duplicate URL Checking (exact and wildcard) */
+    var fgDup = false;
     for (var key in aliveRules) {
         if (aliveRules.hasOwnProperty(key)) {
             if (aliveRules[key].rule_disable || key == ruleIdInput.value || ruleDisableInput.checked) { continue; }
-            if (event.target.value !== "" && event.target.value.replace(/\/$/, '').toLowerCase() == aliveRules[key].fg_trigger_uri.replace(/\/$/, '').toLowerCase()) {
-                fgTriggerUriInput.setCustomValidity("This URL is already used in another Rule! Please disable or delete that Rule first.");
-                fgTriggerUriFb.innerHTML = 'This URL is already used in another Rule! Please disable or delete that Rule first.';
-                break;
+            var fgVal = (event.target.value || "").replace(/\/$/, "").toLowerCase();
+            var otherFg = (aliveRules[key].fg_trigger_uri || "").replace(/\/$/, "").toLowerCase();
+            if (fgVal === "" || otherFg === "") { continue; }
+            if (fgVal === otherFg) { fgDup = true; break; }
+            if (fgVal.indexOf("*") >= 0) {
+                var re = wildcardPatternToRegex(event.target.value);
+                if (re && re.test(otherFg)) { fgDup = true; break; }
             }
-            else { // Clear the Custom Validity Check
-                fgTriggerUriInput.setCustomValidity("");
-                fgTriggerUriFb.innerHTML = 'Valid trigger URL (including "http://" or "https://") is required.';
+            if (otherFg.indexOf("*") >= 0) {
+                var re = wildcardPatternToRegex(aliveRules[key].fg_trigger_uri);
+                if (re && re.test(fgVal)) { fgDup = true; break; }
             }
         }
+    }
+    if (fgDup) {
+        fgTriggerUriInput.setCustomValidity("This URL is already used in another Rule! Please disable or delete that Rule first.");
+        fgTriggerUriFb.innerHTML = 'This URL is already used in another Rule! Please disable or delete that Rule first.';
+    } else {
+        fgTriggerUriInput.setCustomValidity("");
+        fgTriggerUriFb.innerHTML = 'Valid trigger URL (including "http://" or "https://") is required.';
     }
 }, true);
 

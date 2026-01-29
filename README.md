@@ -74,7 +74,11 @@ The page reload is not required as the process happens in the background using A
 The following options are available in the Background Request Options:
 
 - **Trigger URL: (asterisk (*) wildcard is supported)**  
-  When visited, this URL starts the background request process. The background request URL is requested at the set _Request Interval_. For example if _Trigger URL_ is set to `https://example.com/*`, navigating to `https://example.com/login` or `https://example.com/dashboard` *Background Request Rule* will start.
+  When visited, this URL (or a matching one) starts the background request process. The background request URL is requested at the set _Request Interval_.  
+  **Wildcard examples:**  
+  - **Subdomains:** `https://*.jamfcloud.com` matches `https://someschool.jamfcloud.com` (and any subdomain).  
+  - **Any path:** `https://app.example.com/*` matches `https://app.example.com/dashboard/profile/42/settings` (and any path).  
+  - **Exact or prefix:** use a full URL or path prefix without `*` for exact/prefix matching.
 
 - **Background Request URL: (Optional)**  
   If background request URL is different from the _Trigger URL_, it can be set here. Otherwise the _Trigger URL_ will be used by default.
@@ -99,7 +103,10 @@ The *Foreground Request Rule* is used to keep the session alive by auto-reloadin
 The following options are available in the Foreground Request Options:
 
 - **Foreground Auto-Reload Trigger URL:**  
-  Navigating to any URL starting with the _Trigger URL_ will start the foreground page reload loop. For example if _Trigger URL_ is set to `https://example.com/user/`, navigating to `https://example.com/user/profile` or `https://example.com/user/account/details` will set to auto reload in the set _Request Interval_.
+  Navigating to any URL that matches the _Trigger URL_ starts the foreground page reload loop. Same wildcard rules as Trigger URL:  
+  - **Subdomains:** `https://*.jamfcloud.com` matches `https://someschool.jamfcloud.com`.  
+  - **Any path:** `https://app.example.com/*` matches `https://app.example.com/dashboard/profile/42/settings`.  
+  - **Prefix (no wildcard):** `https://example.com/user/` matches any URL starting with that path (e.g. `.../user/profile`, `.../user/account/details`).
 
 - **Foreground Auto-Reload Interval (in minutes):** 
   The page will auto-reload after the set _Request Interval_ time. The minimum _Request Interval_ is 1 minute, and only whole numbers can be set here.

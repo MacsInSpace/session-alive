@@ -9,8 +9,38 @@ var aliveRules = {};
 var runningRules = {};
 var totRunningRules = 0;
 const APPLICABLE_PROTOCOLS = ["http:", "https:"];
-const REGEXP_WILDCARD = /(\*)/g;
+const REGEXP_WILDCARD = /\*/g;
 const REGEXP_ESCAPE = /[.+\-?^${}()|[\]\\]/g;
+
+/**
+ * Converts a URL pattern with * wildcards to a RegExp source string.
+ * * matches any characters (.*). Pattern is anchored at start (^) so only full URL matches.
+ * Examples:
+ *   https://*.jamfcloud.com     → any subdomain (e.g. https://someschool.jamfcloud.com)
+ *   https://example.com/*      → any path (e.g. https://example.com/workers/profile/195/timesheets)
+ * @param {string} pattern - URL pattern (e.g. "https://example.com/*").
+ * @returns {string} RegExp source for matching URLs.
+ */
+function wildcardPatternToRegexSource(pattern) {
+  const normalized = pattern.replace(/\/$/, "").replace(/\/\*$/, "*").toLowerCase();
+  const source = normalized
+    .replace(REGEXP_ESCAPE, "\\$&")
+    .replace(REGEXP_WILDCARD, ".*");
+  return "^" + source;
+}
+
+/**
+ * Returns true if uri matches the rule's foreground trigger (prefix or wildcard).
+ * @param {string} uri - Normalized tab URL (no trailing /, lowercased).
+ * @param {Object} rule - Rule with fg_trigger_uri and optionally fg_compiledRegex.
+ * @returns {boolean}
+ */
+function uriMatchesFgTrigger(uri, rule) {
+  const val = (rule.fg_trigger_uri || "").replace(/\/$/, "").toLowerCase();
+  if (!val) return false;
+  if (rule.fg_compiledRegex) return rule.fg_compiledRegex.test(uri);
+  return uri.length >= val.length && uri.indexOf(val) === 0;
+}
 
 /** @type {boolean} isInitialized - Tracks the initialization state */
 let isInitialized = false;
@@ -145,22 +175,30 @@ function updateRules(aliveSettings) {
   for (const key in aliveRules) {
     const rule = aliveRules[key];
 
-    if (rule.trigger_uri.includes('*')) {
-      const pattern = rule.trigger_uri.replace(/\/$/, '').toLowerCase();
-
-      const regexPattern = pattern
-        .replace(/\/\*$/, '*')
-        .replace(REGEXP_ESCAPE, '\\$&')
-        .replace(REGEXP_WILDCARD, '\.$1');
-      rule.regexPattern = regexPattern; // Store RegExp source pattern in JSON-compatible format
+    if (rule.trigger_uri.includes("*")) {
       try {
-        rule.compiledRegex = new RegExp(regexPattern); // Create RegExp for in-memory use
+        rule.regexPattern = wildcardPatternToRegexSource(rule.trigger_uri);
+        rule.compiledRegex = new RegExp(rule.regexPattern);
       } catch (e) {
+        rule.regexPattern = null;
         rule.compiledRegex = null;
       }
     } else {
       rule.regexPattern = null;
       rule.compiledRegex = null;
+    }
+
+    if (rule.fg_trigger_uri && rule.fg_trigger_uri.includes("*")) {
+      try {
+        rule.fg_regexPattern = wildcardPatternToRegexSource(rule.fg_trigger_uri);
+        rule.fg_compiledRegex = new RegExp(rule.fg_regexPattern);
+      } catch (e) {
+        rule.fg_regexPattern = null;
+        rule.fg_compiledRegex = null;
+      }
+    } else {
+      rule.fg_regexPattern = null;
+      rule.fg_compiledRegex = null;
     }
   }
   console.log("Initialized variable aliveRules!");
@@ -177,7 +215,6 @@ function updateVariables(aliveSession) {
   for (const key in runningRules) {
     const rule = runningRules[key];
     if (rule.regexPattern) {
-      // Create RegExp for in-memory use
       try {
         rule.compiledRegex = new RegExp(rule.regexPattern);
       } catch (e) {
@@ -185,6 +222,15 @@ function updateVariables(aliveSession) {
       }
     } else {
       rule.compiledRegex = null;
+    }
+    if (rule.fg_regexPattern) {
+      try {
+        rule.fg_compiledRegex = new RegExp(rule.fg_regexPattern);
+      } catch (e) {
+        rule.fg_compiledRegex = null;
+      }
+    } else {
+      rule.fg_compiledRegex = null;
     }
   }
   console.log("Initialized variable runningRules!");
@@ -249,20 +295,18 @@ function handleStorageChange() {
 function handleRunningRules(tab) {
   var responseMsg = {};
   var invalidMsg = { response: "Invalid Settings" };
-  var timeoutVal, uri, loopUriVal, bg_triggerUriVal, bg_triggerUriMatch, fg_loopUriVal, headRequest, reloadSound, tab_cookieStoreId, tab_domain;
+  var timeoutVal, uri, loopUriVal, bg_triggerUriVal, bg_triggerUriMatch, headRequest, reloadSound, tab_cookieStoreId, tab_domain;
   uri = tab.url.replace(/\/$/, '').toLowerCase();
   tab_cookieStoreId = (tab.cookieStoreId === undefined) ? "" : tab.cookieStoreId;
-  tab_domain = getDomainName(uri);// Get Domain name for supporting Wildcard URLs
-  totRunningRules = Object.keys(runningRules).length;//Get No. of Running Rules
+  tab_domain = getDomainName(uri);
+  totRunningRules = Object.keys(runningRules).length;
   if (totRunningRules === 0) { return null; }
-  // Iterate through the keys in runningRules Object
   for (var key in runningRules) {
     if (runningRules.hasOwnProperty(key)) {
       loopUriVal = (runningRules[key].loop_uri && runningRules[key].loop_uri !== "") ? runningRules[key].loop_uri : runningRules[key].trigger_uri;
       bg_triggerUriVal = runningRules[key].trigger_uri;
-      fg_loopUriVal = runningRules[key].fg_trigger_uri.replace(/\/$/, '').toLowerCase();
       // Check rule is already running in another tab or not
-      if (runningRules[key].runMode == "foreground" && fg_loopUriVal !== "" && uri.length >= fg_loopUriVal.length && uri.indexOf(fg_loopUriVal) === 0 && runningRules[key].cookieStoreId == tab_cookieStoreId) {
+      if (runningRules[key].runMode == "foreground" && uriMatchesFgTrigger(uri, runningRules[key]) && runningRules[key].cookieStoreId == tab_cookieStoreId) {
         if (runningRules[key].tabId != tab.id && runningRules[key].domain == tab_domain) { responseMsg = { response: "Rule already running" }; return responseMsg; }
       }
       // Background Trigger URL matching
@@ -281,13 +325,11 @@ function handleRunningRules(tab) {
       }
       // Confirm call is from the tab which is Running the Rule
       if (runningRules[key].tabId == tab.id && runningRules[key].runMode == "foreground") {
-        // Tab Id found with Foreground Run Mode
         timeoutVal = parseInt(runningRules[key].fg_interval, 10);
-        if (isNaN(timeoutVal) || timeoutVal === 0) { return invalidMsg; }//NaN or Zero Encountered - Return Invalid
+        if (isNaN(timeoutVal) || timeoutVal === 0) { return invalidMsg; }
         timeoutVal = timeoutVal * 60; //Convert to Seconds
         reloadSound = runningRules[key].fg_reload_sound;
-        // Match URI with the Loop URI of the Rule
-        if (uri.length >= fg_loopUriVal.length && uri.indexOf(fg_loopUriVal) === 0) {
+        if (uriMatchesFgTrigger(uri, runningRules[key])) {
           responseMsg = {
             response: "Run foreground rule",
             run: "foreground",
@@ -297,12 +339,9 @@ function handleRunningRules(tab) {
           };
           return responseMsg;
         }
-        else {// URL is not matched with the trigger uri -> Stop Rule
-          responseMsg = { response: "Stop foreground rule" };
-          // Delete the Rule by (key)
-          deleteRulesByKey(key);
-          return responseMsg;
-        }
+        responseMsg = { response: "Stop foreground rule" };
+        deleteRulesByKey(key);
+        return responseMsg;
       }
       if (runningRules[key].tabId == tab.id && runningRules[key].runMode == "background") {
         headRequest = runningRules[key].bg_head_only;
@@ -348,15 +387,12 @@ function handleInitializeMsg(tab) {
       // Fetch Loop URL for URI matching
       loopUriVal = (aliveRules[key].loop_uri && aliveRules[key].loop_uri !== "") ? aliveRules[key].loop_uri : aliveRules[key].trigger_uri;
       bg_triggerUriVal = aliveRules[key].trigger_uri;
-      fg_loopUriVal = aliveRules[key].fg_trigger_uri.replace(/\/$/, '').toLowerCase();
-      // Match URI with the Loop URI of the Rule
-      if (fg_loopUriVal !== "" && uri.length >= fg_loopUriVal.length && uri.indexOf(fg_loopUriVal) === 0) {
-        // Loop Uri found in the Tab with Foreground Rule Match
+      fg_loopUriVal = (aliveRules[key].fg_trigger_uri || "").replace(/\/$/, '').toLowerCase();
+      if (uriMatchesFgTrigger(uri, aliveRules[key])) {
         timeoutVal = parseInt(aliveRules[key].fg_interval, 10);
-        if (isNaN(timeoutVal) || timeoutVal === 0) { return invalidMsg; }//NaN or Zero Encountered - Return Invalid
+        if (isNaN(timeoutVal) || timeoutVal === 0) { return invalidMsg; }
         timeoutVal = timeoutVal * 60; //Convert to Seconds
         reloadSound = aliveRules[key].fg_reload_sound;
-        // Response Message
         responseMsg = {
           response: "Run foreground rule",
           run: "foreground",
@@ -364,7 +400,6 @@ function handleInitializeMsg(tab) {
           timeout: timeoutVal,
           beepEnabled: reloadSound
         };
-        // Add aliveRules(key) to RunningRules(Key)
         runningRules[key + tab_domain + tab_cookieStoreId] = JSON.parse(JSON.stringify(aliveRules[key]));
         runningRules[key + tab_domain + tab_cookieStoreId].tabId = tab.id;
         runningRules[key + tab_domain + tab_cookieStoreId].runMode = "foreground";
@@ -373,10 +408,9 @@ function handleInitializeMsg(tab) {
         runningRules[key + tab_domain + tab_cookieStoreId].last_run = "";
         runningRules[key + tab_domain + tab_cookieStoreId].cookieStoreId = tab_cookieStoreId;
         runningRules[key + tab_domain + tab_cookieStoreId].domain = tab_domain;
-        runningRules[key + tab_domain + tab_cookieStoreId].compiledRegex = aliveRules[key].compiledRegex; // Assign the compiled RegExp object
-        // Update Browser Badge
+        runningRules[key + tab_domain + tab_cookieStoreId].compiledRegex = aliveRules[key].compiledRegex;
+        runningRules[key + tab_domain + tab_cookieStoreId].fg_compiledRegex = aliveRules[key].fg_compiledRegex;
         updateBadge();
-        // Save variable to Session
         chrome.storage.session.set(runningRules);
         return responseMsg;
       }
@@ -494,7 +528,6 @@ function handleAjax(tab) {
 function handleAddRule(tabs) {
   var url = tabs[0].url;
   var duplicate = false;
-  var AddUrlMatch, TriggerUrlMatch;
   var rules = {};
   var aliveRuleId = "sa" + (new Date()).getTime();
   // var aliveRuleName = "Rule " + (Object.keys(aliveRules).length + 1);
@@ -542,17 +575,19 @@ function handleAddRule(tabs) {
           break;
         }
         // Duplicate URL Checking for WildCard URLs
+        var normUrl = url.replace(/\/$/, '').toLowerCase();
+        var normTrigger = aliveRules[key].trigger_uri.replace(/\/$/, '').toLowerCase();
+        var addUrlMatch = false, triggerUrlMatch = false;
         if (url.indexOf('*') >= 0) {
-          // let re = new RegExp(url.replace(/\/$/, '').replace(/\/\*$/, '*').toLowerCase().replace(REGEXP_ESCAPE, '\\$&').replace(REGEXP_WILDCARD, '\.$1'));
-          // Wildcard matching using Compiled RegExp
-          AddUrlMatch = aliveRules[key].compiledRegex.test(aliveRules[key].trigger_uri.replace(/\/$/, '').toLowerCase());
+          try {
+            var re = new RegExp(wildcardPatternToRegexSource(url));
+            addUrlMatch = re.test(normTrigger);
+          } catch (e) { /* invalid pattern */ }
         }
-        if (aliveRules[key].trigger_uri.indexOf('*') >= 0) {
-          // let re = new RegExp(aliveRules[key].trigger_uri.replace(/\/$/, '').replace(/\/\*$/, '*').toLowerCase().replace(REGEXP_ESCAPE, '\\$&').replace(REGEXP_WILDCARD, '\.$1'));
-          // Wildcard matching using Compiled RegExp
-          TriggerUrlMatch = aliveRules[key].compiledRegex.test(url.replace(/\/$/, '').toLowerCase());
+        if (aliveRules[key].trigger_uri.indexOf('*') >= 0 && aliveRules[key].compiledRegex) {
+          triggerUrlMatch = aliveRules[key].compiledRegex.test(normUrl);
         }
-        if (AddUrlMatch || TriggerUrlMatch) {
+        if (addUrlMatch || triggerUrlMatch) {
           duplicate = true;
           break;
         }
